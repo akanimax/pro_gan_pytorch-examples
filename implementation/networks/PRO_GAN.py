@@ -6,6 +6,53 @@ import numpy as np
 import torch as th
 
 
+# extending Conv2D and Deconv2D layers for equalized learning rate logic
+class _equalized_conv2d(th.nn.Module):
+    def __init__(self, c_in, c_out, k_size, stride=1, pad=0, initializer='kaiming', bias=True):
+        super(_equalized_conv2d, self).__init__()
+        self.conv = th.nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=True)
+        if initializer == 'kaiming':
+            th.nn.init.kaiming_normal(self.conv.weight, a=th.nn.init.calculate_gain('conv2d'))
+        elif initializer == 'xavier':
+            th.nn.init.xavier_normal(self.conv.weight)
+
+        self.use_bias = bias
+
+        self.bias = th.nn.Parameter(th.FloatTensor(c_out).fill_(0))
+        self.scale = (th.mean(self.conv.weight.data ** 2)) ** 0.5
+        self.conv.weight.data.copy_(self.conv.weight.data / self.scale)
+
+    def forward(self, x):
+        dev_scale = self.scale.to(x.get_device())
+        x = self.conv(x.mul(dev_scale))
+        if self.use_bias:
+            return x + self.bias.view(1, -1, 1, 1).expand_as(x)
+        return x
+
+
+class _equalized_deconv2d(th.nn.Module):
+    def __init__(self, c_in, c_out, k_size, stride=1, pad=0, initializer='kaiming', bias=True):
+        super(_equalized_deconv2d, self).__init__()
+        self.deconv = th.nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias=False)
+        if initializer == 'kaiming':
+            th.nn.init.kaiming_normal(self.deconv.weight, a=th.nn.init.calculate_gain('conv2d'))
+        elif initializer == 'xavier':
+            th.nn.init.xavier_normal(self.deconv.weight)
+
+        self.use_bias = bias
+
+        self.bias = th.nn.Parameter(th.FloatTensor(c_out).fill_(0))
+        self.scale = (th.mean(self.deconv.weight.data ** 2)) ** 0.5
+        self.deconv.weight.data.copy_(self.deconv.weight.data / self.scale)
+
+    def forward(self, x):
+        dev_scale = self.scale.to(x.get_device())
+        x = self.deconv(x.mul(dev_scale))
+        if self.use_bias:
+            return x + self.bias.view(1, -1, 1, 1).expand_as(x)
+        return x
+
+
 class Generator(th.nn.Module):
     """ Generator of the GAN network """
 
@@ -17,13 +64,13 @@ class Generator(th.nn.Module):
             constructor for the inner class
             :param in_channels: number of input channels to the block
             """
-            from torch.nn import ConvTranspose2d, Conv2d, LeakyReLU
+            from torch.nn import LeakyReLU
             from torch.nn.functional import local_response_norm
 
             super().__init__()
 
-            self.conv_1 = ConvTranspose2d(in_channels, in_channels, (4, 4))
-            self.conv_2 = Conv2d(in_channels, in_channels, (3, 3), padding=1)
+            self.conv_1 = _equalized_deconv2d(in_channels, in_channels, (4, 4))
+            self.conv_2 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
 
             # Pixelwise feature vector normalization operation
             self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2, beta=0.5,
@@ -59,14 +106,14 @@ class Generator(th.nn.Module):
             :param in_channels: number of input channels to the block
             :param out_channels: number of output channels required
             """
-            from torch.nn import Conv2d, LeakyReLU, Upsample
+            from torch.nn import  LeakyReLU, Upsample
             from torch.nn.functional import local_response_norm
 
             super().__init__()
 
             self.upsample = Upsample(scale_factor=2)
-            self.conv_1 = Conv2d(in_channels, out_channels, (3, 3), padding=1)
-            self.conv_2 = Conv2d(out_channels, out_channels, (3, 3), padding=1)
+            self.conv_1 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
+            self.conv_2 = _equalized_conv2d(out_channels, out_channels, (3, 3), pad=1)
 
             # Pixelwise feature vector normalization operation
             self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2, beta=0.5,
@@ -93,7 +140,7 @@ class Generator(th.nn.Module):
         :param depth: required depth of the Network
         :param latent_size: size of the latent manifold
         """
-        from torch.nn import Conv2d, ModuleList, Upsample
+        from torch.nn import  ModuleList, Upsample
 
         super(Generator, self).__init__()
 
@@ -113,7 +160,7 @@ class Generator(th.nn.Module):
         self.layers = ModuleList([])  # initialize to empty list
 
         # create the ToRGB layers for various outputs:
-        self.toRGB = lambda in_channels: Conv2d(in_channels, 3, (1, 1), bias=False)
+        self.toRGB = lambda in_channels: _equalized_conv2d(in_channels, 3, (1, 1), bias=False)
         self.rgb_converters = ModuleList([self.toRGB(self.latent_size)])
 
         # create the remaining layers
@@ -203,17 +250,17 @@ class Discriminator(th.nn.Module):
             constructor of the class
             :param in_channels: number of input channels
             """
-            from torch.nn import Conv2d, LeakyReLU
+            from torch.nn import  LeakyReLU
 
             super().__init__()
 
             # declare the required modules for forward pass
             self.batch_discriminator = self.MinibatchStdDev()
-            self.conv_1 = Conv2d(in_channels + 1, in_channels, (3, 3), padding=1)
-            self.conv_2 = Conv2d(in_channels, in_channels, (4, 4))
+            self.conv_1 = _equalized_conv2d(in_channels + 1, in_channels, (3, 3), pad=1)
+            self.conv_2 = _equalized_conv2d(in_channels, in_channels, (4, 4))
 
             # final conv layer emulates a fully connected layer
-            self.conv_3 = Conv2d(in_channels, 1, (1, 1))
+            self.conv_3 = _equalized_conv2d(in_channels, 1, (1, 1))
 
             # leaky_relu:
             self.lrelu = LeakyReLU(0.2)
@@ -246,12 +293,12 @@ class Discriminator(th.nn.Module):
             :param in_channels: number of input channels
             :param out_channels: number of output channels
             """
-            from torch.nn import Conv2d, AvgPool2d, LeakyReLU
+            from torch.nn import  AvgPool2d, LeakyReLU
 
             super().__init__()
 
-            self.conv_1 = Conv2d(in_channels, in_channels, (3, 3), padding=1)
-            self.conv_2 = Conv2d(in_channels, out_channels, (3, 3), padding=1)
+            self.conv_1 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
+            self.conv_2 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
             self.downSampler = AvgPool2d(2)
 
             # leaky_relu:
@@ -277,7 +324,7 @@ class Discriminator(th.nn.Module):
         :param feature_size: size of the deepest features extracted
                              (Must be equal to Generator latent_size)
         """
-        from torch.nn import ModuleList, Conv2d, AvgPool2d
+        from torch.nn import ModuleList, AvgPool2d
 
         super(Discriminator, self).__init__()
 
@@ -296,7 +343,7 @@ class Discriminator(th.nn.Module):
         self.layers = ModuleList([])  # initialize to empty list
 
         # create the fromRGB layers for various inputs:
-        self.fromRGB = lambda out_channels: Conv2d(3, out_channels, (1, 1), bias=False)
+        self.fromRGB = lambda out_channels: _equalized_conv2d(3, out_channels, (1, 1), bias=False)
         self.rgb_to_features = ModuleList([self.fromRGB(self.feature_size)])
 
         # create the remaining layers
@@ -472,7 +519,7 @@ class ProGAN:
 
             loss_val += loss.item()
 
-        return (loss_val / self.n_critic)
+        return loss_val / self.n_critic
 
     def optimize_generator(self, noise, depth, alpha):
         """

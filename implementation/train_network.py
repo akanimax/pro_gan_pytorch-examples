@@ -139,8 +139,8 @@ def train_networks(pro_gan, dataset, epochs,
             print("Time taken for epoch: %.3f secs" % (stop - start))
 
             if epoch % checkpoint_factor == 0 or epoch == 0:
-                gen_save_file = os.path.join(save_dir, "GAN_GEN.pth")
-                dis_save_file = os.path.join(save_dir, "GAN_DIS.pth")
+                gen_save_file = os.path.join(save_dir, "GAN_GEN_" + str(current_depth) + ".pth")
+                dis_save_file = os.path.join(save_dir, "GAN_DIS_" + str(current_depth) + ".pth")
 
                 th.save(pro_gan.gen.state_dict(), gen_save_file, pickle)
                 th.save(pro_gan.dis.state_dict(), dis_save_file, pickle)
