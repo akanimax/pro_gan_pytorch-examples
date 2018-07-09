@@ -12,9 +12,9 @@ class _equalized_conv2d(th.nn.Module):
         super(_equalized_conv2d, self).__init__()
         self.conv = th.nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=True)
         if initializer == 'kaiming':
-            th.nn.init.kaiming_normal(self.conv.weight, a=th.nn.init.calculate_gain('conv2d'))
+            th.nn.init.kaiming_normal_(self.conv.weight, a=th.nn.init.calculate_gain('conv2d'))
         elif initializer == 'xavier':
-            th.nn.init.xavier_normal(self.conv.weight)
+            th.nn.init.xavier_normal_(self.conv.weight)
 
         self.use_bias = bias
 
@@ -35,9 +35,9 @@ class _equalized_deconv2d(th.nn.Module):
         super(_equalized_deconv2d, self).__init__()
         self.deconv = th.nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias=False)
         if initializer == 'kaiming':
-            th.nn.init.kaiming_normal(self.deconv.weight, a=th.nn.init.calculate_gain('conv2d'))
+            th.nn.init.kaiming_normal_(self.deconv.weight, a=th.nn.init.calculate_gain('conv2d'))
         elif initializer == 'xavier':
-            th.nn.init.xavier_normal(self.deconv.weight)
+            th.nn.init.xavier_normal_(self.deconv.weight)
 
         self.use_bias = bias
 
