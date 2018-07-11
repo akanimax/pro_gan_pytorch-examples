@@ -155,7 +155,7 @@ def main(args):
     :return: None
     """
 
-    from networks.PRO_GAN_eql import ProGAN
+    from networks.PRO_GAN import ProGAN
 
     print(args.config)
     config = get_config(args.config)
