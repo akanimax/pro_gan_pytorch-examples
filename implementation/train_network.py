@@ -155,17 +155,21 @@ def main(args):
     :return: None
     """
 
-    from networks.PRO_GAN import ProGAN
+    from networks.PRO_GAN_eql import ProGAN
 
     print(args.config)
     config = get_config(args.config)
     print("Current Configuration:", config)
 
     # create the dataset for training
-    dataset = dl.DogBreedDataset(
+    dataset = dl.MNIST(
         data_dir=config.images_dir,
         transform=dl.get_transform(config.img_dims)
     )
+
+    dataset.files = dataset.files[:1000]
+
+    print("total examples in training: ", len(dataset))
 
     pro_gan = ProGAN(
         depth=config.depth,
@@ -176,6 +180,8 @@ def main(args):
         eps=config.eps,
         drift=config.drift,
         n_critic=config.n_critic,
+        use_eql=config.use_eql,
+        loss=config.loss_function,
         device=device
     )
 

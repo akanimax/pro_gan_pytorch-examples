@@ -6,71 +6,32 @@ import numpy as np
 import torch as th
 
 
-# extending Conv2D and Deconv2D layers for equalized learning rate logic
-class _equalized_conv2d(th.nn.Module):
-    def __init__(self, c_in, c_out, k_size, stride=1, pad=0, initializer='kaiming', bias=True):
-        super(_equalized_conv2d, self).__init__()
-        self.conv = th.nn.Conv2d(c_in, c_out, k_size, stride, pad, bias=True)
-        if initializer == 'kaiming':
-            th.nn.init.kaiming_normal(self.conv.weight, a=th.nn.init.calculate_gain('conv2d'))
-        elif initializer == 'xavier':
-            th.nn.init.xavier_normal(self.conv.weight)
-
-        self.use_bias = bias
-
-        self.bias = th.nn.Parameter(th.FloatTensor(c_out).fill_(0))
-        self.scale = (th.mean(self.conv.weight.data ** 2)) ** 0.5
-        self.conv.weight.data.copy_(self.conv.weight.data / self.scale)
-
-    def forward(self, x):
-        dev_scale = self.scale.to(x.get_device())
-        x = self.conv(x.mul(dev_scale))
-        if self.use_bias:
-            return x + self.bias.view(1, -1, 1, 1).expand_as(x)
-        return x
-
-
-class _equalized_deconv2d(th.nn.Module):
-    def __init__(self, c_in, c_out, k_size, stride=1, pad=0, initializer='kaiming', bias=True):
-        super(_equalized_deconv2d, self).__init__()
-        self.deconv = th.nn.ConvTranspose2d(c_in, c_out, k_size, stride, pad, bias=False)
-        if initializer == 'kaiming':
-            th.nn.init.kaiming_normal(self.deconv.weight, a=th.nn.init.calculate_gain('conv2d'))
-        elif initializer == 'xavier':
-            th.nn.init.xavier_normal(self.deconv.weight)
-
-        self.use_bias = bias
-
-        self.bias = th.nn.Parameter(th.FloatTensor(c_out).fill_(0))
-        self.scale = (th.mean(self.deconv.weight.data ** 2)) ** 0.5
-        self.deconv.weight.data.copy_(self.deconv.weight.data / self.scale)
-
-    def forward(self, x):
-        dev_scale = self.scale.to(x.get_device())
-        x = self.deconv(x.mul(dev_scale))
-        if self.use_bias:
-            return x + self.bias.view(1, -1, 1, 1).expand_as(x)
-        return x
-
-
 class Generator(th.nn.Module):
     """ Generator of the GAN network """
 
     class InitialBlock(th.nn.Module):
         """ Module implementing the initial block of the input """
 
-        def __init__(self, in_channels):
+        def __init__(self, in_channels, use_eql):
             """
             constructor for the inner class
             :param in_channels: number of input channels to the block
+            :param use_eql: whether to use equalized learning rate
             """
             from torch.nn import LeakyReLU
             from torch.nn.functional import local_response_norm
 
             super().__init__()
 
-            self.conv_1 = _equalized_deconv2d(in_channels, in_channels, (4, 4))
-            self.conv_2 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
+            if use_eql:
+                from networks.CustomLayers import _equalized_conv2d, _equalized_deconv2d
+                self.conv_1 = _equalized_deconv2d(in_channels, in_channels, (4, 4))
+                self.conv_2 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
+
+            else:
+                from torch.nn import Conv2d, ConvTranspose2d
+                self.conv_1 = ConvTranspose2d(in_channels, in_channels, (4, 4))
+                self.conv_2 = Conv2d(in_channels, in_channels, (3, 3), padding=1)
 
             # Pixelwise feature vector normalization operation
             self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2, beta=0.5,
@@ -100,20 +61,28 @@ class Generator(th.nn.Module):
     class GeneralConvBlock(th.nn.Module):
         """ Module implementing a general convolutional block """
 
-        def __init__(self, in_channels, out_channels):
+        def __init__(self, in_channels, out_channels, use_eql):
             """
             constructor for the class
             :param in_channels: number of input channels to the block
             :param out_channels: number of output channels required
+            :param use_eql: whether to use equalized learning rate
             """
-            from torch.nn import  LeakyReLU, Upsample
+            from torch.nn import LeakyReLU, Upsample
             from torch.nn.functional import local_response_norm
 
             super().__init__()
 
             self.upsample = Upsample(scale_factor=2)
-            self.conv_1 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
-            self.conv_2 = _equalized_conv2d(out_channels, out_channels, (3, 3), pad=1)
+
+            if use_eql:
+                from networks.CustomLayers import _equalized_conv2d
+                self.conv_1 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
+                self.conv_2 = _equalized_conv2d(out_channels, out_channels, (3, 3), pad=1)
+            else:
+                from torch.nn import Conv2d
+                self.conv_1 = Conv2d(in_channels, out_channels, (3, 3), padding=1)
+                self.conv_2 = Conv2d(out_channels, out_channels, (3, 3), padding=1)
 
             # Pixelwise feature vector normalization operation
             self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2, beta=0.5,
@@ -134,13 +103,14 @@ class Generator(th.nn.Module):
 
             return y
 
-    def __init__(self, depth=7, latent_size=512):
+    def __init__(self, depth=7, latent_size=512, use_eql=True):
         """
         constructor for the Generator class
         :param depth: required depth of the Network
         :param latent_size: size of the latent manifold
+        :param use_eql: whether to use equalized learning rate
         """
-        from torch.nn import  ModuleList, Upsample
+        from torch.nn import ModuleList, Upsample
 
         super(Generator, self).__init__()
 
@@ -150,28 +120,38 @@ class Generator(th.nn.Module):
             assert latent_size >= np.power(2, depth - 4), "latent size will diminish to zero"
 
         # state of the generator:
+        self.use_eql = use_eql
         self.depth = depth
         self.latent_size = latent_size
 
         # register the modules required for the GAN
-        self.initial_block = self.InitialBlock(self.latent_size)
+        self.initial_block = self.InitialBlock(self.latent_size, use_eql=self.use_eql)
 
         # create a module list of the other required general convolution blocks
         self.layers = ModuleList([])  # initialize to empty list
 
         # create the ToRGB layers for various outputs:
-        self.toRGB = lambda in_channels: _equalized_conv2d(in_channels, 3, (1, 1), bias=False)
+        if self.use_eql:
+            from networks.CustomLayers import _equalized_conv2d
+            self.toRGB = lambda in_channels: \
+                _equalized_conv2d(in_channels, 3, (1, 1), bias=False)
+        else:
+            from torch.nn import Conv2d
+            self.toRGB = lambda in_channels: Conv2d(in_channels, 3, (1, 1), bias=False)
+
         self.rgb_converters = ModuleList([self.toRGB(self.latent_size)])
 
         # create the remaining layers
         for i in range(self.depth - 1):
             if i <= 2:
-                layer = self.GeneralConvBlock(self.latent_size, self.latent_size)
+                layer = self.GeneralConvBlock(self.latent_size,
+                                              self.latent_size, use_eql=self.use_eql)
                 rgb = self.toRGB(self.latent_size)
             else:
                 layer = self.GeneralConvBlock(
                     int(self.latent_size // np.power(2, i - 3)),
-                    int(self.latent_size // np.power(2, i - 2))
+                    int(self.latent_size // np.power(2, i - 2)),
+                    use_eql=self.use_eql
                 )
                 rgb = self.toRGB(int(self.latent_size // np.power(2, i - 2)))
             self.layers.append(layer)
@@ -245,22 +225,30 @@ class Discriminator(th.nn.Module):
                 # return the output tensor
                 return fwd
 
-        def __init__(self, in_channels):
+        def __init__(self, in_channels, use_eql):
             """
             constructor of the class
             :param in_channels: number of input channels
+            :param use_eql: whether to use equalized learning rate
             """
-            from torch.nn import  LeakyReLU
+            from torch.nn import LeakyReLU
 
             super().__init__()
 
             # declare the required modules for forward pass
             self.batch_discriminator = self.MinibatchStdDev()
-            self.conv_1 = _equalized_conv2d(in_channels + 1, in_channels, (3, 3), pad=1)
-            self.conv_2 = _equalized_conv2d(in_channels, in_channels, (4, 4))
+            if use_eql:
+                from networks.CustomLayers import _equalized_conv2d
+                self.conv_1 = _equalized_conv2d(in_channels + 1, in_channels, (3, 3), pad=1)
+                self.conv_2 = _equalized_conv2d(in_channels, in_channels, (4, 4))
+                self.conv_3 = _equalized_conv2d(in_channels, 1, (1, 1))
+            else:
+                from torch.nn import Conv2d
+                self.conv_1 = Conv2d(in_channels + 1, in_channels, (3, 3), padding=1)
+                self.conv_2 = Conv2d(in_channels, in_channels, (4, 4))
+                self.conv_3 = Conv2d(in_channels, 1, (1, 1))
 
             # final conv layer emulates a fully connected layer
-            self.conv_3 = _equalized_conv2d(in_channels, 1, (1, 1))
 
             # leaky_relu:
             self.lrelu = LeakyReLU(0.2)
@@ -287,18 +275,26 @@ class Discriminator(th.nn.Module):
     class GeneralConvBlock(th.nn.Module):
         """ General block in the discriminator  """
 
-        def __init__(self, in_channels, out_channels):
+        def __init__(self, in_channels, out_channels, use_eql):
             """
             constructor of the class
             :param in_channels: number of input channels
             :param out_channels: number of output channels
+            :param use_eql: whether to use equalized learning rate
             """
-            from torch.nn import  AvgPool2d, LeakyReLU
+            from torch.nn import AvgPool2d, LeakyReLU
 
             super().__init__()
 
-            self.conv_1 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
-            self.conv_2 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
+            if use_eql:
+                from networks.CustomLayers import _equalized_conv2d
+                self.conv_1 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
+                self.conv_2 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
+            else:
+                from torch.nn import Conv2d
+                self.conv_1 = Conv2d(in_channels, in_channels, (3, 3), padding=1)
+                self.conv_2 = Conv2d(in_channels, out_channels, (3, 3), padding=1)
+
             self.downSampler = AvgPool2d(2)
 
             # leaky_relu:
@@ -317,12 +313,13 @@ class Discriminator(th.nn.Module):
 
             return y
 
-    def __init__(self, height=7, feature_size=512):
+    def __init__(self, height=7, feature_size=512, use_eql=True):
         """
         constructor for the class
         :param height: total height of the discriminator (Must be equal to the Generator depth)
         :param feature_size: size of the deepest features extracted
                              (Must be equal to Generator latent_size)
+        :param use_eql: whether to use equalized learning rate
         """
         from torch.nn import ModuleList, AvgPool2d
 
@@ -334,16 +331,24 @@ class Discriminator(th.nn.Module):
             assert feature_size >= np.power(2, height - 4), "feature size cannot be produced"
 
         # create state of the object
+        self.use_eql = use_eql
         self.height = height
         self.feature_size = feature_size
 
-        self.final_block = self.FinalBlock(self.feature_size)
+        self.final_block = self.FinalBlock(self.feature_size, use_eql=self.use_eql)
 
         # create a module list of the other required general convolution blocks
         self.layers = ModuleList([])  # initialize to empty list
 
         # create the fromRGB layers for various inputs:
-        self.fromRGB = lambda out_channels: _equalized_conv2d(3, out_channels, (1, 1), bias=False)
+        if self.use_eql:
+            from networks.CustomLayers import _equalized_conv2d
+            self.fromRGB = lambda out_channels: \
+                _equalized_conv2d(3, out_channels, (1, 1), bias=False)
+        else:
+            from torch.nn import Conv2d
+            self.fromRGB = lambda out_channels: Conv2d(3, out_channels, (1, 1), bias=False)
+
         self.rgb_to_features = ModuleList([self.fromRGB(self.feature_size)])
 
         # create the remaining layers
@@ -351,11 +356,13 @@ class Discriminator(th.nn.Module):
             if i > 2:
                 layer = self.GeneralConvBlock(
                     int(self.feature_size // np.power(2, i - 2)),
-                    int(self.feature_size // np.power(2, i - 3))
+                    int(self.feature_size // np.power(2, i - 3)),
+                    use_eql=self.use_eql
                 )
                 rgb = self.fromRGB(int(self.feature_size // np.power(2, i - 2)))
             else:
-                layer = self.GeneralConvBlock(self.feature_size, self.feature_size)
+                layer = self.GeneralConvBlock(self.feature_size,
+                                              self.feature_size, use_eql=self.use_eql)
                 rgb = self.fromRGB(self.feature_size)
 
             self.layers.append(layer)
@@ -396,7 +403,8 @@ class ProGAN:
     """ Wrapper around the Generator and the Discriminator """
 
     def __init__(self, depth=7, latent_size=64, learning_rate=0.001, beta_1=0,
-                 beta_2=0.99, eps=1e-8, drift=0.001, n_critic=1, device=th.device("cpu")):
+                 beta_2=0.99, eps=1e-8, drift=0.001, n_critic=1, use_eql=True,
+                 loss="wgan-gp", device=th.device("cpu")):
         """
         constructor for the class
         :param depth: depth of the GAN (will be used for each generator and discriminator)
@@ -406,19 +414,24 @@ class ProGAN:
         :param beta_2: beta_2 for Adam
         :param eps: epsilon for Adam
         :param n_critic: number of times to update discriminator
+        :param use_eql: whether to use equalized learning rate
+        :param loss: the loss function to be used
+                     Can either be a string => ["wgan-gp", "wgan", "lsgan", "ralsgan"]
+                     Or an instance of GANLoss
         :param device: device to run the GAN on (GPU / CPU)
         """
 
         from torch.optim import Adam
 
         # Create the Generator and the Discriminator
-        self.gen = Generator(depth, latent_size).to(device)
-        self.dis = Discriminator(depth, latent_size).to(device)
+        self.gen = Generator(depth, latent_size, use_eql=use_eql).to(device)
+        self.dis = Discriminator(depth, latent_size, use_eql=use_eql).to(device)
 
         # state of the object
         self.latent_size = latent_size
         self.depth = depth
         self.n_critic = n_critic
+        self.use_eql = use_eql
         self.device = device
         self.drift = drift
 
@@ -429,56 +442,27 @@ class ProGAN:
         self.dis_optim = Adam(self.dis.parameters(), lr=learning_rate,
                               betas=(beta_1, beta_2), eps=eps)
 
-    def __gradient_penalty(self, real_samps, fake_samps,
-                           depth, alpha, reg_lambda=10):
-        """
-        private helper for calculating the gradient penalty
-        :param real_samps: real samples
-        :param fake_samps: fake samples
-        :param depth: current depth in the optimization
-        :param alpha: current alpha for fade-in
-        :param reg_lambda: regularisation lambda
-        :return: tensor (gradient penalty)
-        """
-        from torch.autograd import grad
+        # define the loss function used for training the GAN
+        self.loss = self.__setup_loss(loss)
 
-        batch_size = real_samps.shape[0]
+    def __setup_loss(self, loss):
+        import networks.Losses as losses
 
-        # generate random epsilon
-        epsilon = th.rand((batch_size, 1, 1, 1)).to(self.device)
+        if isinstance(loss, str):
+            loss = loss.lower()  # lowercase the string
+            if loss == "wgan":
+                loss = losses.WGAN_GP(self.device, self.dis, self.drift, use_gp=False)
+            elif loss == "wgan-gp":
+                loss = losses.WGAN_GP(self.device, self.dis, self.drift, use_gp=True)
+            elif loss == "lsgan":
+                loss = losses.LSGAN(self.device, self.dis)
+            else:
+                raise ValueError("Unknown loss function requested")
 
-        # create the merge of both real and fake samples
-        merged = (epsilon * real_samps) + ((1 - epsilon) * fake_samps)
+        elif not isinstance(loss, losses.GANLoss):
+            raise ValueError("loss is neither an instance of GANLoss nor a string")
 
-        # forward pass
-        op = self.dis.forward(merged, depth, alpha)
-
-        # obtain gradient of op wrt. merged
-        gradient = grad(outputs=op, inputs=merged, create_graph=True,
-                        grad_outputs=th.ones_like(op),
-                        retain_graph=True, only_inputs=True)[0]
-
-        # calculate the penalty using these gradients
-        penalty = reg_lambda * ((gradient.norm(p=2, dim=1) - 1) ** 2).mean()
-
-        # return the calculated penalty:
-        return penalty
-
-    def __turn_off_dis_grads(self):
-        """
-        turn off discriminator gradients (to save computational power)
-        :return: None
-        """
-        for p in self.dis.parameters():
-            p.requires_grad = False
-
-    def __turn_on_dis_grads(self):
-        """
-        turn on discriminator gradients (for weight updates)
-        :return: None
-        """
-        for p in self.dis.parameters():
-            p.requires_grad = True
+        return loss
 
     def optimize_discriminator(self, noise, real_batch, depth, alpha):
         """
@@ -491,9 +475,6 @@ class ProGAN:
         """
         from torch.nn import AvgPool2d
 
-        # turn on gradients for discriminator
-        self.__turn_on_dis_grads()
-
         # downsample the real_batch for the given depth
         down_sample_factor = int(np.power(2, self.depth - depth - 1))
         real_samples = AvgPool2d(down_sample_factor)(real_batch)
@@ -501,20 +482,13 @@ class ProGAN:
         loss_val = 0
         for _ in range(self.n_critic):
             # generate a batch of samples
-            fake_samples = self.gen(noise, depth, alpha)
+            fake_samples = self.gen(noise, depth, alpha).detach()
 
-            # calculate the WGAN-GP (gradient penalty)
-            gp = self.__gradient_penalty(real_samples, fake_samples, depth, alpha)
-
-            # define the (Wasserstein) loss
-            fake_out = self.dis(fake_samples, depth, alpha)
-            real_out = self.dis(real_samples, depth, alpha)
-            loss = (th.mean(fake_out) - th.mean(real_out) + gp
-                    + (self.drift * th.mean(real_out ** 2)))
+            loss = self.loss.dis_loss(real_samples, fake_samples, depth, alpha)
 
             # optimize discriminator
             self.dis_optim.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()
             self.dis_optim.step()
 
             loss_val += loss.item()
@@ -529,17 +503,15 @@ class ProGAN:
         :param alpha: value of alpha for fade-in effect
         :return: current loss (Wasserstein estimate)
         """
-        # turn off discriminator gradient computations
-        self.__turn_off_dis_grads()
 
         # generate fake samples:
         fake_samples = self.gen(noise, depth, alpha)
 
-        loss = -th.mean(self.dis(fake_samples, depth, alpha))
+        loss = self.loss.gen_loss(fake_samples, depth, alpha)
 
         # optimize the generator
         self.gen_optim.zero_grad()
-        loss.backward(retain_graph=True)
+        loss.backward()
         self.gen_optim.step()
 
         # return the loss value

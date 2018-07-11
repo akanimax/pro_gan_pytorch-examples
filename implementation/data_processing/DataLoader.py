@@ -62,6 +62,71 @@ class DogBreedDataset(Dataset):
         return img
 
 
+class MNIST(Dataset):
+    """ pyTorch Dataset wrapper for the MNIST dataset """
+
+    def __setup_files(self):
+        """
+        private helper for setting up the files_list
+        :return: files => list of paths of files
+        """
+
+        dir_names = os.listdir(self.data_dir)
+        files = []  # initialize to empty list
+
+        for dir_name in dir_names:
+            file_path = os.path.join(self.data_dir, dir_name)
+            file_names = os.listdir(file_path)
+            for file_name in file_names:
+                possible_file = os.path.join(file_path, file_name)
+                if os.path.isfile(possible_file):
+                    files.append(possible_file)
+
+        # return the files list
+        return files
+
+    def __init__(self, data_dir, transform=None):
+        """
+        constructor for the class
+        :param data_dir: path to the directory containing the data
+        :param transform: transforms to be applied to the images
+        """
+        # define the state of the object
+        self.data_dir = data_dir
+        self.transform = transform
+
+        # setup the files for reading
+        self.files = self.__setup_files()
+
+    def __len__(self):
+        """
+        compute the length of the dataset
+        :return: len => length of dataset
+        """
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        """
+        obtain the image (read and transform)
+        :param idx: index of the file required
+        :return: img => image array
+        """
+        from PIL import Image
+
+        # read the image:
+        img = Image.open(self.files[idx])
+
+        # apply the transforms on the image
+        if self.transform is not None:
+            img = self.transform(img)
+
+        # convert the black and white image to RGB:
+        img = img.expand(3, -1, -1)
+
+        # return the image:
+        return img
+
+
 def get_transform(new_size=None):
     """
     obtain the image transforms required for the input data

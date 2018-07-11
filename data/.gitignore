@@ -1,2 +1,4 @@
-# ignore the full version of the dog-breed dataset
+# ignore the full versions of all the datasets used here
 dog-breed/
+mnist/
+
