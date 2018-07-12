@@ -1,4 +1,4 @@
-""" Module implementing the Conditional GAN which will be trained using the Progressive growing
+""" Module implementing GAN which will be trained using the Progressive growing
     technique -> https://arxiv.org/abs/1710.10196
 """
 
@@ -452,10 +452,18 @@ class ProGAN:
             loss = loss.lower()  # lowercase the string
             if loss == "wgan":
                 loss = losses.WGAN_GP(self.device, self.dis, self.drift, use_gp=False)
+                # note if you use just wgan, you will have to use weight clipping
+                # in order to prevent gradient exploding
+
             elif loss == "wgan-gp":
                 loss = losses.WGAN_GP(self.device, self.dis, self.drift, use_gp=True)
+
             elif loss == "lsgan":
                 loss = losses.LSGAN(self.device, self.dis)
+
+            elif loss == "lsgan-with-sigmoid":
+                loss = losses.LSGAN_SIGMOID(self.device, self.dis)
+
             else:
                 raise ValueError("Unknown loss function requested")
 

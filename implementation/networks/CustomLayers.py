@@ -9,7 +9,7 @@ class _equalized_conv2d(th.nn.Module):
     def __init__(self, c_in, c_out, k_size, stride=1, pad=0, initializer='kaiming', bias=True):
         """
         constructor for the class
-        :param c_in: input channesl
+        :param c_in: input channels
         :param c_out:  output channels
         :param k_size: kernel size (h, w) should be a tuple or a single integer
         :param stride: stride for conv
@@ -34,7 +34,7 @@ class _equalized_conv2d(th.nn.Module):
         """
         forward pass of the network
         :param x: input
-        :return: output
+        :return: y => output
         """
         try:
             dev_scale = self.scale.to(x.get_device())
@@ -77,7 +77,7 @@ class _equalized_deconv2d(th.nn.Module):
         """
         forward pass of the layer
         :param x: input
-        :return: output
+        :return: y => output
         """
         try:
             dev_scale = self.scale.to(x.get_device())
@@ -93,6 +93,12 @@ class _equalized_deconv2d(th.nn.Module):
 class equalized_linear(th.nn.Module):
     """ Linear layer using equalized learning rate """
     def __init__(self, c_in, c_out, initializer='kaiming'):
+        """
+        Linear layer from pytorch extended to include equalized learning rate
+        :param c_in: number of input channels
+        :param c_out: number of output channels
+        :param initializer: initializer to be used: one of "kaiming" or "xavier"
+        """
         super(equalized_linear, self).__init__()
         self.linear = th.nn.Linear(c_in, c_out, bias=False)
         if initializer == 'kaiming':
@@ -106,5 +112,14 @@ class equalized_linear(th.nn.Module):
         self.linear.weight.data.copy_(self.linear.weight.data / self.scale)
 
     def forward(self, x):
-        x = self.linear(x.mul(self.scale))
+        """
+        forward pass of the layer
+        :param x: input
+        :return: y => output
+        """
+        try:
+            dev_scale = self.scale.to(x.get_device())
+        except RuntimeError:
+            dev_scale = self.scale
+        x = self.linear(x.mul(dev_scale))
         return x + self.bias.view(1, -1).expand_as(x)

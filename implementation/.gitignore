@@ -1,2 +1,4 @@
 # ignore the training runs' generated samples
 training_runs/1/generated_samples/
+
+mnist_*/

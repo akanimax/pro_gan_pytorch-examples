@@ -111,6 +111,10 @@ def train_networks(pro_gan, dataset, epochs,
                 # optimize the generator:
                 gen_loss = pro_gan.optimize_generator(gan_input, current_depth, alpha)
 
+                if dis_loss != dis_loss and gen_loss != gen_loss:
+                    # condition for nan
+                    pass
+
                 # provide a loss feedback
                 if i % int(total_batches / feedback_factor) == 0 or i == 1:
                     print("batch: %d  d_loss: %f  g_loss: %f" % (i, dis_loss, gen_loss))
@@ -166,8 +170,6 @@ def main(args):
         data_dir=config.images_dir,
         transform=dl.get_transform(config.img_dims)
     )
-
-    dataset.files = dataset.files[:1000]
 
     print("total examples in training: ", len(dataset))
 

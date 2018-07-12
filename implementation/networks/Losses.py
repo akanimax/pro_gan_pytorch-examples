@@ -5,6 +5,7 @@ import torch as th
 
 class GANLoss:
     """ Base class for all losses """
+
     def __init__(self, device, dis):
         self.device = device
         self.dis = dis
@@ -59,7 +60,6 @@ class WGAN_GP(GANLoss):
         return penalty
 
     def dis_loss(self, real_samps, fake_samps, height, alpha):
-
         # calculate the WGAN-GP (gradient penalty)
         gp = self.__gradient_penalty(real_samps, fake_samps, height, alpha)
 
@@ -76,7 +76,6 @@ class WGAN_GP(GANLoss):
         return loss
 
     def gen_loss(self, fake_samps, height, alpha):
-
         # calculate the WGAN loss for generator
         loss = -th.mean(self.dis(fake_samps, height, alpha))
 
@@ -94,3 +93,20 @@ class LSGAN(GANLoss):
 
     def gen_loss(self, fake_samps, height, alpha):
         return 0.5 * ((th.mean(self.dis(fake_samps, height, alpha)) - 1) ** 2)
+
+
+class LSGAN_SIGMOID(GANLoss):
+
+    def __init__(self, device, dis):
+        super().__init__(device, dis)
+
+    def dis_loss(self, real_samps, fake_samps, height, alpha):
+        from torch.nn.functional import sigmoid
+        real_scores = th.mean(sigmoid(self.dis(real_samps, height, alpha)))
+        fake_scores = th.mean(sigmoid(self.dis(fake_samps, height, alpha)))
+        return 0.5 * (((real_scores - 1) ** 2) + (fake_scores ** 2))
+
+    def gen_loss(self, fake_samps, height, alpha):
+        from torch.nn.functional import sigmoid
+        scores = th.mean(sigmoid(self.dis(fake_samps, height, alpha)))
+        return 0.5 * ((scores - 1) ** 2)
