@@ -60,8 +60,6 @@ class WGAN_GP(GANLoss):
         return penalty
 
     def dis_loss(self, real_samps, fake_samps, height, alpha):
-        # calculate the WGAN-GP (gradient penalty)
-        gp = self.__gradient_penalty(real_samps, fake_samps, height, alpha)
 
         # define the (Wasserstein) loss
         fake_out = self.dis(fake_samps, height, alpha)
@@ -71,6 +69,9 @@ class WGAN_GP(GANLoss):
                 + (self.drift * th.mean(real_out ** 2)))
 
         if self.use_gp:
+            # calculate the WGAN-GP (gradient penalty)
+            fake_samps.requires_grad = True  # turn on gradients for penalty calculation
+            gp = self.__gradient_penalty(real_samps, fake_samps, height, alpha)
             loss += gp
 
         return loss

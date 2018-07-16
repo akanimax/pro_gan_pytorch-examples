@@ -9,100 +9,6 @@ import torch as th
 class Generator(th.nn.Module):
     """ Generator of the GAN network """
 
-    class InitialBlock(th.nn.Module):
-        """ Module implementing the initial block of the input """
-
-        def __init__(self, in_channels, use_eql):
-            """
-            constructor for the inner class
-            :param in_channels: number of input channels to the block
-            :param use_eql: whether to use equalized learning rate
-            """
-            from torch.nn import LeakyReLU
-            from torch.nn.functional import local_response_norm
-
-            super().__init__()
-
-            if use_eql:
-                from networks.CustomLayers import _equalized_conv2d, _equalized_deconv2d
-                self.conv_1 = _equalized_deconv2d(in_channels, in_channels, (4, 4))
-                self.conv_2 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
-
-            else:
-                from torch.nn import Conv2d, ConvTranspose2d
-                self.conv_1 = ConvTranspose2d(in_channels, in_channels, (4, 4))
-                self.conv_2 = Conv2d(in_channels, in_channels, (3, 3), padding=1)
-
-            # Pixelwise feature vector normalization operation
-            self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2, beta=0.5,
-                                                         k=1e-8)
-
-            # leaky_relu:
-            self.lrelu = LeakyReLU(0.2)
-
-        def forward(self, x):
-            """
-            forward pass of the block
-            :param x: input to the module
-            :return: y => output
-            """
-            # convert the tensor shape:
-            y = th.unsqueeze(th.unsqueeze(x, -1), -1)
-
-            # perform the forward computations:
-            y = self.lrelu(self.conv_1(y))
-            y = self.lrelu(self.conv_2(y))
-
-            # apply pixel norm
-            y = self.pixNorm(y)
-
-            return y
-
-    class GeneralConvBlock(th.nn.Module):
-        """ Module implementing a general convolutional block """
-
-        def __init__(self, in_channels, out_channels, use_eql):
-            """
-            constructor for the class
-            :param in_channels: number of input channels to the block
-            :param out_channels: number of output channels required
-            :param use_eql: whether to use equalized learning rate
-            """
-            from torch.nn import LeakyReLU, Upsample
-            from torch.nn.functional import local_response_norm
-
-            super().__init__()
-
-            self.upsample = Upsample(scale_factor=2)
-
-            if use_eql:
-                from networks.CustomLayers import _equalized_conv2d
-                self.conv_1 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
-                self.conv_2 = _equalized_conv2d(out_channels, out_channels, (3, 3), pad=1)
-            else:
-                from torch.nn import Conv2d
-                self.conv_1 = Conv2d(in_channels, out_channels, (3, 3), padding=1)
-                self.conv_2 = Conv2d(out_channels, out_channels, (3, 3), padding=1)
-
-            # Pixelwise feature vector normalization operation
-            self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2, beta=0.5,
-                                                         k=1e-8)
-
-            # leaky_relu:
-            self.lrelu = LeakyReLU(0.2)
-
-        def forward(self, x):
-            """
-            forward pass of the block
-            :param x: input
-            :return: y => output
-            """
-            y = self.upsample(x)
-            y = self.pixNorm(self.lrelu(self.conv_1(y)))
-            y = self.pixNorm(self.lrelu(self.conv_2(y)))
-
-            return y
-
     def __init__(self, depth=7, latent_size=512, use_eql=True):
         """
         constructor for the Generator class
@@ -111,6 +17,7 @@ class Generator(th.nn.Module):
         :param use_eql: whether to use equalized learning rate
         """
         from torch.nn import ModuleList, Upsample
+        from networks.CustomLayers import GenGeneralConvBlock, GenInitialBlock
 
         super(Generator, self).__init__()
 
@@ -125,7 +32,7 @@ class Generator(th.nn.Module):
         self.latent_size = latent_size
 
         # register the modules required for the GAN
-        self.initial_block = self.InitialBlock(self.latent_size, use_eql=self.use_eql)
+        self.initial_block = GenInitialBlock(self.latent_size, use_eql=self.use_eql)
 
         # create a module list of the other required general convolution blocks
         self.layers = ModuleList([])  # initialize to empty list
@@ -134,21 +41,21 @@ class Generator(th.nn.Module):
         if self.use_eql:
             from networks.CustomLayers import _equalized_conv2d
             self.toRGB = lambda in_channels: \
-                _equalized_conv2d(in_channels, 3, (1, 1), bias=False)
+                _equalized_conv2d(in_channels, 3, (1, 1), bias=True)
         else:
             from torch.nn import Conv2d
-            self.toRGB = lambda in_channels: Conv2d(in_channels, 3, (1, 1), bias=False)
+            self.toRGB = lambda in_channels: Conv2d(in_channels, 3, (1, 1), bias=True)
 
         self.rgb_converters = ModuleList([self.toRGB(self.latent_size)])
 
         # create the remaining layers
         for i in range(self.depth - 1):
             if i <= 2:
-                layer = self.GeneralConvBlock(self.latent_size,
-                                              self.latent_size, use_eql=self.use_eql)
+                layer = GenGeneralConvBlock(self.latent_size,
+                                            self.latent_size, use_eql=self.use_eql)
                 rgb = self.toRGB(self.latent_size)
             else:
-                layer = self.GeneralConvBlock(
+                layer = GenGeneralConvBlock(
                     int(self.latent_size // np.power(2, i - 3)),
                     int(self.latent_size // np.power(2, i - 2)),
                     use_eql=self.use_eql
@@ -192,127 +99,6 @@ class Generator(th.nn.Module):
 class Discriminator(th.nn.Module):
     """ Discriminator of the GAN """
 
-    class FinalBlock(th.nn.Module):
-        """ Initial block for the Discriminator """
-
-        class MinibatchStdDev(th.nn.Module):
-            """ module implementing the minibatch_Stddev from the Pro-GAN paper. """
-
-            def __init__(self):
-                """ constructor for the class """
-                super().__init__()
-                # this layer doesn't have parameters
-
-            def forward(self, x):
-                """
-                forward pass of the module
-                :param x: input Tensor (B x C x H x W)
-                :return: fwd => output Tensor (B x (C + 1) x H x W)
-                """
-
-                # calculate the std of x over the batch dimension
-                std_x = x.std(dim=0)
-
-                # average the std over all
-                m_value = std_x.mean()
-
-                # replicate the value over all spatial locations for
-                # all examples
-                b_size, _, h, w = x.shape
-                constant_concat = m_value.expand(b_size, 1, h, w)
-                fwd = th.cat((x, constant_concat), dim=1)
-
-                # return the output tensor
-                return fwd
-
-        def __init__(self, in_channels, use_eql):
-            """
-            constructor of the class
-            :param in_channels: number of input channels
-            :param use_eql: whether to use equalized learning rate
-            """
-            from torch.nn import LeakyReLU
-
-            super().__init__()
-
-            # declare the required modules for forward pass
-            self.batch_discriminator = self.MinibatchStdDev()
-            if use_eql:
-                from networks.CustomLayers import _equalized_conv2d
-                self.conv_1 = _equalized_conv2d(in_channels + 1, in_channels, (3, 3), pad=1)
-                self.conv_2 = _equalized_conv2d(in_channels, in_channels, (4, 4))
-                self.conv_3 = _equalized_conv2d(in_channels, 1, (1, 1))
-            else:
-                from torch.nn import Conv2d
-                self.conv_1 = Conv2d(in_channels + 1, in_channels, (3, 3), padding=1)
-                self.conv_2 = Conv2d(in_channels, in_channels, (4, 4))
-                self.conv_3 = Conv2d(in_channels, 1, (1, 1))
-
-            # final conv layer emulates a fully connected layer
-
-            # leaky_relu:
-            self.lrelu = LeakyReLU(0.2)
-
-        def forward(self, x):
-            """
-            forward pass of the FinalBlock
-            :param x: input
-            :return: y => output
-            """
-            # minibatch_std_dev layer
-            y = self.batch_discriminator(x)
-
-            # define the computations
-            y = self.lrelu(self.conv_1(y))
-            y = self.lrelu(self.conv_2(y))
-
-            # fully connected layer
-            y = self.lrelu(self.conv_3(y))  # final fully connected layer
-
-            # flatten the output raw discriminator scores
-            return y.view(-1)
-
-    class GeneralConvBlock(th.nn.Module):
-        """ General block in the discriminator  """
-
-        def __init__(self, in_channels, out_channels, use_eql):
-            """
-            constructor of the class
-            :param in_channels: number of input channels
-            :param out_channels: number of output channels
-            :param use_eql: whether to use equalized learning rate
-            """
-            from torch.nn import AvgPool2d, LeakyReLU
-
-            super().__init__()
-
-            if use_eql:
-                from networks.CustomLayers import _equalized_conv2d
-                self.conv_1 = _equalized_conv2d(in_channels, in_channels, (3, 3), pad=1)
-                self.conv_2 = _equalized_conv2d(in_channels, out_channels, (3, 3), pad=1)
-            else:
-                from torch.nn import Conv2d
-                self.conv_1 = Conv2d(in_channels, in_channels, (3, 3), padding=1)
-                self.conv_2 = Conv2d(in_channels, out_channels, (3, 3), padding=1)
-
-            self.downSampler = AvgPool2d(2)
-
-            # leaky_relu:
-            self.lrelu = LeakyReLU(0.2)
-
-        def forward(self, x):
-            """
-            forward pass of the module
-            :param x: input
-            :return: y => output
-            """
-            # define the computations
-            y = self.lrelu(self.conv_1(x))
-            y = self.lrelu(self.conv_2(y))
-            y = self.downSampler(y)
-
-            return y
-
     def __init__(self, height=7, feature_size=512, use_eql=True):
         """
         constructor for the class
@@ -322,6 +108,7 @@ class Discriminator(th.nn.Module):
         :param use_eql: whether to use equalized learning rate
         """
         from torch.nn import ModuleList, AvgPool2d
+        from networks.CustomLayers import DisGeneralConvBlock, DisFinalBlock
 
         super(Discriminator, self).__init__()
 
@@ -335,7 +122,7 @@ class Discriminator(th.nn.Module):
         self.height = height
         self.feature_size = feature_size
 
-        self.final_block = self.FinalBlock(self.feature_size, use_eql=self.use_eql)
+        self.final_block = DisFinalBlock(self.feature_size, use_eql=self.use_eql)
 
         # create a module list of the other required general convolution blocks
         self.layers = ModuleList([])  # initialize to empty list
@@ -344,25 +131,25 @@ class Discriminator(th.nn.Module):
         if self.use_eql:
             from networks.CustomLayers import _equalized_conv2d
             self.fromRGB = lambda out_channels: \
-                _equalized_conv2d(3, out_channels, (1, 1), bias=False)
+                _equalized_conv2d(3, out_channels, (1, 1), bias=True)
         else:
             from torch.nn import Conv2d
-            self.fromRGB = lambda out_channels: Conv2d(3, out_channels, (1, 1), bias=False)
+            self.fromRGB = lambda out_channels: Conv2d(3, out_channels, (1, 1), bias=True)
 
         self.rgb_to_features = ModuleList([self.fromRGB(self.feature_size)])
 
         # create the remaining layers
         for i in range(self.height - 1):
             if i > 2:
-                layer = self.GeneralConvBlock(
+                layer = DisGeneralConvBlock(
                     int(self.feature_size // np.power(2, i - 2)),
                     int(self.feature_size // np.power(2, i - 3)),
                     use_eql=self.use_eql
                 )
                 rgb = self.fromRGB(int(self.feature_size // np.power(2, i - 2)))
             else:
-                layer = self.GeneralConvBlock(self.feature_size,
-                                              self.feature_size, use_eql=self.use_eql)
+                layer = DisGeneralConvBlock(self.feature_size,
+                                            self.feature_size, use_eql=self.use_eql)
                 rgb = self.fromRGB(self.feature_size)
 
             self.layers.append(layer)
@@ -379,10 +166,12 @@ class Discriminator(th.nn.Module):
         :param alpha: current value of alpha for fade-in
         :return: out => raw prediction values (WGAN-GP)
         """
+
         assert height < self.height, "Requested output depth cannot be produced"
 
         if height > 0:
             residual = self.rgb_to_features[height - 1](self.temporaryDownsampler(x))
+
             straight = self.layers[height - 1](
                 self.rgb_to_features[height](x)
             )
@@ -444,6 +233,42 @@ class ProGAN:
 
         # define the loss function used for training the GAN
         self.loss = self.__setup_loss(loss)
+
+        # attach backward hook to discriminator's final block and rgb_to_features' 1 layer
+        def printgradnorm(self, grad_input, grad_output):
+            print('\n\nInside ' + self.__class__.__name__ + " backwards")
+            print('Inside class:' + self.__class__.__name__)
+            print('')
+            print('grad_input: ', type(grad_input))
+            print('grad_input len: ', len(grad_input))
+            print('grad_input _inside: ', type(grad_input[2]))
+            print('grad_output: ', type(grad_output))
+            print('grad_output len: ', len(grad_output))
+            print('grad_output _inside: ', type(grad_output[0]))
+            print('')
+            print('grad_input size:', grad_input[2].size())
+            print('grad_output size:', grad_output[0].size())
+            print('grad_output_norm:', grad_output[0].norm())
+            print('grad_input norm:', grad_input[2].norm())
+
+        def printfwdNorm(self, fwd_input, fwd_output):
+            print('\n\nInside ' + self.__class__.__name__ + " forwards")
+            print('Inside class:' + self.__class__.__name__)
+            print('')
+            print('fwd_input: ', type(fwd_input))
+            print('fwd_input len: ', len(fwd_input))
+            print('fwd_input[0]: ', type(fwd_input[0]))
+            print('fwd_output: ', type(fwd_output))
+            print('fwd_output len: ', len(fwd_output))
+            print('fwd_output[0]: ', type(fwd_output[0]))
+            print('')
+            print('fwd_input size:', fwd_input[0].size())
+            print('fwd_output size:', fwd_output.size())
+            print('fwd_input norm:', fwd_input[0].norm())
+            print('fwd_output norm:', fwd_output[0].norm())
+
+        # self.dis.rgb_to_features[0].register_forward_hook(printfwdNorm)
+        # self.dis.rgb_to_features[0].register_backward_hook(printgradnorm)
 
     def __setup_loss(self, loss):
         import networks.Losses as losses
