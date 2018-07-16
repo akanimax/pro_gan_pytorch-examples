@@ -168,7 +168,7 @@ def main(args):
         transform=dl.get_transform(config.img_dims)
     )
 
-    dataset.files = dataset.files[:1000]
+    dataset.files = dataset.files[:100]
 
     print("total examples in training: ", len(dataset))
 
