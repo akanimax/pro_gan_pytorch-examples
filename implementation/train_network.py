@@ -169,7 +169,7 @@ def main(args):
     print("Current Configuration:", config)
 
     # create the dataset for training
-    dataset = dl.MNIST(
+    dataset = dl.LFW(
         data_dir=config.images_dir,
         transform=dl.get_transform(config.img_dims)
     )

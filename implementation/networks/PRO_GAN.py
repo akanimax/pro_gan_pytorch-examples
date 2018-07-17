@@ -275,14 +275,19 @@ class ProGAN:
         :return: current loss (Wasserstein loss)
         """
         from torch.nn import AvgPool2d
+        from torch.nn.functional import upsample
 
         # downsample the real_batch for the given depth
         down_sample_factor = int(np.power(2, self.depth - depth - 1))
-        prior_downsample_factor = max(int(np.power(2, self.depth - depth)),
-                                      0) if depth > 0 else down_sample_factor
+        prior_downsample_factor = max(int(np.power(2, self.depth - depth)), 0)
 
         ds_real_samples = AvgPool2d(down_sample_factor)(real_batch)
-        prior_ds_real_samples = AvgPool2d(prior_downsample_factor)(real_batch)
+
+        if depth > 0:
+            prior_ds_real_samples = upsample(AvgPool2d(prior_downsample_factor)(real_batch),
+                                             scale_factor=2)
+        else:
+            prior_ds_real_samples = ds_real_samples
 
         # real samples are a combination of ds_real_samples and prior_ds_real_samples
         real_samples = (alpha * ds_real_samples) + ((1 - alpha) * prior_ds_real_samples)

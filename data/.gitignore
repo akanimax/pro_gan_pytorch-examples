@@ -1,4 +1,5 @@
 # ignore the full versions of all the datasets used here
 dog-breed/
 mnist/
-
+lfw/
+cifar-10/

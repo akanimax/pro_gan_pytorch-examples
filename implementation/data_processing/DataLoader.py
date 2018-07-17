@@ -62,7 +62,7 @@ class DogBreedDataset(Dataset):
         return img
 
 
-class MNIST(Dataset):
+class FoldersDistributedDataset(Dataset):
     """ pyTorch Dataset wrapper for the MNIST dataset """
 
     def __setup_files(self):
@@ -125,6 +125,14 @@ class MNIST(Dataset):
 
         # return the image:
         return img
+
+
+class MNIST(FoldersDistributedDataset):
+    pass
+
+
+class LFW(FoldersDistributedDataset):
+    pass
 
 
 def get_transform(new_size=None):
