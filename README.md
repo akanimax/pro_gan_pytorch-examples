@@ -1,2 +1,2 @@
 # dog-pro-gan
-Unconditional GAN for dogs dataset using progressive growing training technique
+ProGAN (Progressive growing of GAN) architecture for various datasets using pytorch.
