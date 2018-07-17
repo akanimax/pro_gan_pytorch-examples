@@ -234,42 +234,6 @@ class ProGAN:
         # define the loss function used for training the GAN
         self.loss = self.__setup_loss(loss)
 
-        # attach backward hook to discriminator's final block and rgb_to_features' 1 layer
-        def printgradnorm(self, grad_input, grad_output):
-            print('\n\nInside ' + self.__class__.__name__ + " backwards")
-            print('Inside class:' + self.__class__.__name__)
-            print('')
-            print('grad_input: ', type(grad_input))
-            print('grad_input len: ', len(grad_input))
-            print('grad_input _inside: ', type(grad_input[2]))
-            print('grad_output: ', type(grad_output))
-            print('grad_output len: ', len(grad_output))
-            print('grad_output _inside: ', type(grad_output[0]))
-            print('')
-            print('grad_input size:', grad_input[2].size())
-            print('grad_output size:', grad_output[0].size())
-            print('grad_output_norm:', grad_output[0].norm())
-            print('grad_input norm:', grad_input[2].norm())
-
-        def printfwdNorm(self, fwd_input, fwd_output):
-            print('\n\nInside ' + self.__class__.__name__ + " forwards")
-            print('Inside class:' + self.__class__.__name__)
-            print('')
-            print('fwd_input: ', type(fwd_input))
-            print('fwd_input len: ', len(fwd_input))
-            print('fwd_input[0]: ', type(fwd_input[0]))
-            print('fwd_output: ', type(fwd_output))
-            print('fwd_output len: ', len(fwd_output))
-            print('fwd_output[0]: ', type(fwd_output[0]))
-            print('')
-            print('fwd_input size:', fwd_input[0].size())
-            print('fwd_output size:', fwd_output.size())
-            print('fwd_input norm:', fwd_input[0].norm())
-            print('fwd_output norm:', fwd_output[0].norm())
-
-        # self.dis.rgb_to_features[0].register_forward_hook(printfwdNorm)
-        # self.dis.rgb_to_features[0].register_backward_hook(printgradnorm)
-
     def __setup_loss(self, loss):
         import networks.Losses as losses
 
