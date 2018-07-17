@@ -87,7 +87,7 @@ def train_networks(pro_gan, dataset, epochs,
         print("Current resolution: %d x %d" % (current_res, current_res))
 
         data = dl.get_data_loader(dataset, batch_sizes[current_depth], num_workers)
-        fader_point = int((fade_in_percentage[current_depth] / 100) * epochs[current_depth])
+        ticker = 1
 
         for epoch in range(1, epochs[current_depth] + 1):
             start = timeit.default_timer()  # record time at the start of epoch
@@ -95,9 +95,12 @@ def train_networks(pro_gan, dataset, epochs,
             print("\nEpoch: %d" % epoch)
             total_batches = len(iter(data))
 
+            fader_point = int((fade_in_percentage[current_depth] / 100)
+                              * epochs[current_depth] * total_batches)
+
             for (i, batch) in enumerate(data, 1):
                 # calculate the alpha for fading in the layers
-                alpha = epoch / fader_point if epoch <= fader_point else 1
+                alpha = ticker / fader_point if ticker <= fader_point else 1
 
                 # extract current batch of data for training
                 images = batch.to(device)
@@ -135,6 +138,9 @@ def train_networks(pro_gan, dataset, epochs,
                         img_file=gen_img_file,
                         width=int(np.sqrt(batch_sizes[current_depth])),
                     )
+
+                # increment the alpha ticker
+                ticker += 1
 
             stop = timeit.default_timer()
             print("Time taken for epoch: %.3f secs" % (stop - start))

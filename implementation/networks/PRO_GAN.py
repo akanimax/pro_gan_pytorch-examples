@@ -203,9 +203,13 @@ class ProGAN:
         :param beta_2: beta_2 for Adam
         :param eps: epsilon for Adam
         :param n_critic: number of times to update discriminator
+                         (Used only if loss is wgan or wgan-gp)
+        :param drift: drift penalty for the
+                      (Used only if loss is wgan or wgan-gp)
         :param use_eql: whether to use equalized learning rate
         :param loss: the loss function to be used
-                     Can either be a string => ["wgan-gp", "wgan", "lsgan", "ralsgan"]
+                     Can either be a string =>
+                          ["wgan-gp", "wgan", "lsgan", "lsgan-with-sigmoid"]
                      Or an instance of GANLoss
         :param device: device to run the GAN on (GPU / CPU)
         """
@@ -274,7 +278,14 @@ class ProGAN:
 
         # downsample the real_batch for the given depth
         down_sample_factor = int(np.power(2, self.depth - depth - 1))
-        real_samples = AvgPool2d(down_sample_factor)(real_batch)
+        prior_downsample_factor = max(int(np.power(2, self.depth - depth)),
+                                      0) if depth > 0 else down_sample_factor
+
+        ds_real_samples = AvgPool2d(down_sample_factor)(real_batch)
+        prior_ds_real_samples = AvgPool2d(prior_downsample_factor)(real_batch)
+
+        # real samples are a combination of ds_real_samples and prior_ds_real_samples
+        real_samples = (alpha * ds_real_samples) + ((1 - alpha) * prior_ds_real_samples)
 
         loss_val = 0
         for _ in range(self.n_critic):

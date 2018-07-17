@@ -156,7 +156,7 @@ class GenInitialBlock(th.nn.Module):
             self.conv_2 = Conv2d(in_channels, in_channels, (3, 3), padding=1, bias=True)
 
         # Pixelwise feature vector normalization operation
-        self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2 * x.shape[1],
+        self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2,
                                                      beta=0.5, k=1e-8)
 
         # leaky_relu:
@@ -211,7 +211,7 @@ class GenGeneralConvBlock(th.nn.Module):
                                  padding=1, bias=True)
 
         # Pixelwise feature vector normalization operation
-        self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2 * x.shape[1],
+        self.pixNorm = lambda x: local_response_norm(x, 2 * x.shape[1], alpha=2,
                                                      beta=0.5, k=1e-8)
 
         # leaky_relu:
