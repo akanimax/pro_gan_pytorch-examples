@@ -127,6 +127,26 @@ class _equalized_linear(th.nn.Module):
         return x + self.bias.view(1, -1).expand_as(x)
 
 
+class EMA(th.nn.Module):
+    """
+    uses implementation from
+        -> https://gist.github.com/jojonki/d78034ebb0bc798774d660458b3846e6
+    """
+    def __init__(self, mu):
+        super(EMA, self).__init__()
+        self.mu = mu
+        self.shadow = {}
+
+    def register(self, name, val):
+        self.shadow[name] = val.clone()
+
+    def forward(self, name, x):
+        assert name in self.shadow
+        new_average = self.mu * x + (1.0 - self.mu) * self.shadow[name]
+        self.shadow[name] = new_average.clone()
+        return new_average
+
+
 # ==========================================================
 # Layers required for Building The generator and
 # discriminator
@@ -345,7 +365,7 @@ class DisFinalBlock(th.nn.Module):
         y = self.lrelu(self.conv_2(y))
 
         # fully connected layer
-        y = self.lrelu(self.conv_3(y))  # final fully connected layer
+        y = self.conv_3(y)  # final fully connected layer
 
         # flatten the output raw discriminator scores
         return y.view(-1)

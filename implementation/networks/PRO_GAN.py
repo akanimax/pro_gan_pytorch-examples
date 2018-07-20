@@ -75,7 +75,6 @@ class Generator(th.nn.Module):
         :param alpha: value of alpha for fade-in effect
         :return: y => output
         """
-        from torch.nn.functional import tanh
 
         assert depth < self.depth, "Requested output depth cannot be produced"
 
@@ -85,13 +84,13 @@ class Generator(th.nn.Module):
             for block in self.layers[:depth - 1]:
                 y = block(y)
 
-            residual = tanh(self.rgb_converters[depth - 1](self.temporaryUpsampler(y)))
-            straight = tanh(self.rgb_converters[depth](self.layers[depth - 1](y)))
+            residual = self.rgb_converters[depth - 1](self.temporaryUpsampler(y))
+            straight = self.rgb_converters[depth](self.layers[depth - 1](y))
 
             out = (alpha * straight) + ((1 - alpha) * residual)
 
         else:
-            out = tanh(self.rgb_converters[0](y))
+            out = self.rgb_converters[0](y)
 
         return out
 
@@ -193,7 +192,8 @@ class ProGAN:
 
     def __init__(self, depth=7, latent_size=64, learning_rate=0.001, beta_1=0,
                  beta_2=0.99, eps=1e-8, drift=0.001, n_critic=1, use_eql=True,
-                 loss="wgan-gp", device=th.device("cpu")):
+                 loss="wgan-gp", use_ema=True, ema_decay=0.999,
+                 device=th.device("cpu")):
         """
         constructor for the class
         :param depth: depth of the GAN (will be used for each generator and discriminator)
@@ -211,6 +211,8 @@ class ProGAN:
                      Can either be a string =>
                           ["wgan-gp", "wgan", "lsgan", "lsgan-with-sigmoid"]
                      Or an instance of GANLoss
+        :param use_ema: boolean for controlling whether to use EMA in generator
+        :param ema_decay: value of mu for ema
         :param device: device to run the GAN on (GPU / CPU)
         """
 
@@ -225,6 +227,8 @@ class ProGAN:
         self.depth = depth
         self.n_critic = n_critic
         self.use_eql = use_eql
+        self.use_ema = use_ema
+        self.ema_decay = ema_decay
         self.device = device
         self.drift = drift
 
@@ -237,6 +241,20 @@ class ProGAN:
 
         # define the loss function used for training the GAN
         self.loss = self.__setup_loss(loss)
+
+        # if use ema is true, register generator parameters to the EMA layer:
+        if self.use_ema:
+            from networks.CustomLayers import EMA
+
+            assert self.ema_decay <= 1, "EMA decay value cannot be greater than 1"
+
+            self.ema = EMA(self.ema_decay)
+            self.__register_generator_ema()
+
+    def __register_generator_ema(self):
+        for name, param in self.gen.named_parameters():
+            if param.requires_grad:
+                self.ema.register(name, param.data)
 
     def __setup_loss(self, loss):
         import networks.Losses as losses
@@ -326,6 +344,12 @@ class ProGAN:
         self.gen_optim.zero_grad()
         loss.backward()
         self.gen_optim.step()
+
+        # perform EMA on the generator parameters if use_ema is true
+        if self.use_ema:
+            for name, param in self.gen.named_parameters():
+                if param.requires_grad:
+                    param.data = self.ema(name, param.data)
 
         # return the loss value
         return loss.item()

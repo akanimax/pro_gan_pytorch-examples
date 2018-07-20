@@ -50,7 +50,7 @@ def get_config(conf_file):
 
 def create_grid(samples, scale_factor, img_file, width=2, real_imgs=False):
     """
-    utility funtion to create a grid of GAN samples
+    utility function to create a grid of GAN samples
     :param samples: generated samples for storing
     :param scale_factor: factor for upscaling the image
     :param img_file: name of file to write
@@ -61,9 +61,9 @@ def create_grid(samples, scale_factor, img_file, width=2, real_imgs=False):
     from torchvision.utils import save_image
     from torch.nn.functional import upsample
 
-    samples = (samples / 2) + 0.5
+    samples = th.clamp((samples / 2) + 0.5, min=0, max=1)
 
-    # upsmaple the image
+    # upsample the image
     if scale_factor > 1 and not real_imgs:
         samples = upsample(samples, scale_factor=scale_factor)
 
@@ -187,6 +187,8 @@ def main(args):
         n_critic=config.n_critic,
         use_eql=config.use_eql,
         loss=config.loss_function,
+        use_ema=config.use_ema,
+        ema_decay=config.ema_decay,
         device=device
     )
 
