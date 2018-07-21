@@ -162,14 +162,14 @@ def main(args):
     :return: None
     """
 
-    from networks.PRO_GAN import ProGAN
+    from pro_gan_pytorch.PRO_GAN import ProGAN
 
     print(args.config)
     config = get_config(args.config)
     print("Current Configuration:", config)
 
     # create the dataset for training
-    dataset = dl.LFW(
+    dataset = dl.FoldersDistributedDataset(
         data_dir=config.images_dir,
         transform=dl.get_transform(config.img_dims)
     )

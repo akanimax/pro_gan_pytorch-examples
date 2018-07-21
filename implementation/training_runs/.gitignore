@@ -1,2 +1,5 @@
 # ignore all the pth files:
 *.pth
+
+# ignore the archived trainings
+archived_trainings/
