@@ -27,7 +27,7 @@ The configuration used for the MNIST training experiment can be found in
 performed using the `wgan-gp` loss function. <br>
 
 <h4> Examples: </h4>
-<img align="center" src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/lfw/generated_samples/gen_5_7_118.png"/>
+<img align="center" src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/lfw/generated_samples/medium_2.gif"/>
 <br>
 
 <h4> Sample loss plot: </h4>
