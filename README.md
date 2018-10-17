@@ -19,10 +19,7 @@ your appropriate <b> gpu / cpu </b> version of `PyTorch 0.4.0`. Once this
 is done, you can proceed with the following experiments.
 
 ## LFW Experiment
-<b>**Note that this is still under training and 
-following are intermediate results.</b> <br>
-
-The configuration used for the MNIST training experiment can be found in
+The configuration used for the LFW training experiment can be found in
 `implementation/configs/lfw.conf` in this repository.  The training was
 performed using the `wgan-gp` loss function. <br>
 
