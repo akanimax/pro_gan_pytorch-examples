@@ -1,4 +1,5 @@
-""" Script for end-to-end training of the T2F model """
+""" Script for training of the proGAN model """
+
 import datetime
 import time
 import torch as th

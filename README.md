@@ -19,15 +19,14 @@ your appropriate <b> gpu / cpu </b> version of `PyTorch 0.4.0`. Once this
 is done, you can proceed with the following experiments.
 
 ## LFW Experiment
-<b>**Note that this is still under training and 
-following are intermediate results.</b> <br>
-
-The configuration used for the MNIST training experiment can be found in
+The configuration used for the LFW training experiment can be found in
 `implementation/configs/lfw.conf` in this repository.  The training was
 performed using the `wgan-gp` loss function. <br>
 
 <h4> Examples: </h4>
-<img align="center" src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/lfw/generated_samples/gen_5_7_118.png"/>
+<p align="center">
+<img align="center" src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/lfw/generated_samples/medium_2.gif" height=60% width=60%/>
+</p>
 <br>
 
 <h4> Sample loss plot: </h4>
@@ -40,11 +39,13 @@ The configuration used for the MNIST training experiment can be found in
 `implementation/configs/mnist.conf` in this repository. The training was
 performed using the `lsgan` loss function. <br>
 <h4> Examples: </h4>
+<p align="center">
 <img align="center" src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/mnist/generated_samples/gen_3_12_651.png"/>
+</p>
 <br>
 
 <h4> Sample loss plot: </h4>
-<img align="center" src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/mnist/losses/loss_plots/loss_for_4_x_4.png"/>
+<img src ="https://raw.githubusercontent.com/akanimax/pro_gan_pytorch-examples/master/implementation/training_runs/mnist/losses/loss_plots/loss_for_4_x_4.png"/>
 <br>
 
 ## How to use:
