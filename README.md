@@ -98,4 +98,4 @@ Please feel free to open PRs here if you train on other datasets
 using this package. <br>
 
 Best regards, <br>
-@akanimax :)
+@akanimax :)sion

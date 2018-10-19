@@ -3,3 +3,6 @@
 
 # ignore the archived trainings
 archived_trainings/
+celebA/
+lfw/
+mnist/

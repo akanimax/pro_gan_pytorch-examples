@@ -4,8 +4,8 @@ import os
 from torch.utils.data import Dataset
 
 
-class DogBreedDataset(Dataset):
-    """ pyTorch Dataset wrapper for the Dog breed dataset """
+class FlatDirectoryDataset(Dataset):
+    """ pyTorch Dataset wrapper for the FlatDirectory Images dataset """
 
     def __setup_files(self):
         """

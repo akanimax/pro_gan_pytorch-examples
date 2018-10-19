@@ -1,5 +1,6 @@
 """ Script for end-to-end training of the T2F model """
-
+import datetime
+import time
 import torch as th
 import numpy as np
 import data_processing.DataLoader as dl
@@ -9,8 +10,16 @@ import os
 import pickle
 import timeit
 
+from torch.backends import cudnn
+
 # define the device for the training script
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
+
+# set manual seed for the training
+th.manual_seed(3)
+
+# allow fast training using CUDNN
+cudnn.benchmark = True
 
 
 def parse_arguments():
@@ -48,36 +57,44 @@ def get_config(conf_file):
     return edict(data)
 
 
-def create_grid(samples, scale_factor, img_file, width=2, real_imgs=False):
+def create_grid(samples, scale_factor, img_file, real_imgs=False):
     """
     utility function to create a grid of GAN samples
     :param samples: generated samples for storing
     :param scale_factor: factor for upscaling the image
     :param img_file: name of file to write
-    :param width: width for the grid
     :param real_imgs: turn off the scaling of images
     :return: None (saves a file)
     """
     from torchvision.utils import save_image
-    from torch.nn.functional import upsample
+    from torch.nn.functional import interpolate
 
     samples = th.clamp((samples / 2) + 0.5, min=0, max=1)
 
     # upsample the image
     if scale_factor > 1 and not real_imgs:
-        samples = upsample(samples, scale_factor=scale_factor)
+        samples = interpolate(samples, scale_factor=scale_factor)
 
     # save the images:
-    save_image(samples, img_file, nrow=width)
+    save_image(samples, img_file, nrow=int(np.sqrt(len(samples))))
 
 
 def train_networks(pro_gan, dataset, epochs,
-                   fade_in_percentage, batch_sizes,
+                   fade_in_percentage, batch_sizes, num_samples,
                    start_depth, num_workers, feedback_factor,
                    log_dir, sample_dir, checkpoint_factor,
                    save_dir):
-
     assert pro_gan.depth == len(batch_sizes), "batch_sizes not compatible with depth"
+
+    # turn the generator and discriminator into train mode
+    pro_gan.gen.train()
+    pro_gan.dis.train()
+
+    # create a global time counter
+    global_time = time.time()
+
+    # create fixed_input for debugging
+    fixed_input = th.randn(num_samples, pro_gan.latent_size).to(device)
 
     print("Starting the training process ... ")
     for current_depth in range(start_depth, pro_gan.depth):
@@ -105,38 +122,42 @@ def train_networks(pro_gan, dataset, epochs,
                 # extract current batch of data for training
                 images = batch.to(device)
 
-                gan_input = th.randn(images.shape[0], pro_gan.gen.latent_size).to(pro_gan.device)
+                gan_input = th.randn(images.shape[0], pro_gan.latent_size).to(pro_gan.device)
 
                 # optimize the discriminator:
                 dis_loss = pro_gan.optimize_discriminator(gan_input, images,
                                                           current_depth, alpha)
 
                 # optimize the generator:
-                gan_input = th.randn(images.shape[0], pro_gan.gen.latent_size).to(pro_gan.device)
+                gan_input = th.randn(images.shape[0], pro_gan.latent_size).to(pro_gan.device)
                 gen_loss = pro_gan.optimize_generator(gan_input, current_depth, alpha)
 
                 # provide a loss feedback
                 if i % int(total_batches / feedback_factor) == 0 or i == 1:
-                    print("batch: %d  d_loss: %f  g_loss: %f" % (i, dis_loss, gen_loss))
+                    elapsed = time.time() - global_time
+                    elapsed = str(datetime.timedelta(seconds=elapsed))
+                    print("Elapsed: [%s]  batch: %d  d_loss: %f  g_loss: %f"
+                          % (elapsed, i, dis_loss, gen_loss))
 
                     # also write the losses to the log file:
+                    os.makedirs(log_dir, exist_ok=True)
                     log_file = os.path.join(log_dir, "loss_" + str(current_depth) + ".log")
                     with open(log_file, "a") as log:
                         log.write(str(dis_loss) + "\t" + str(gen_loss) + "\n")
 
                     # create a grid of samples and save it
+                    os.makedirs(sample_dir, exist_ok=True)
                     gen_img_file = os.path.join(sample_dir, "gen_" + str(current_depth) +
                                                 "_" + str(epoch) + "_" +
                                                 str(i) + ".png")
                     create_grid(
                         samples=pro_gan.gen(
-                            gan_input,
+                            fixed_input,
                             current_depth,
                             alpha
                         ),
                         scale_factor=int(np.power(2, pro_gan.depth - current_depth - 1)),
                         img_file=gen_img_file,
-                        width=int(np.sqrt(batch_sizes[current_depth])),
                     )
 
                 # increment the alpha ticker
@@ -146,11 +167,20 @@ def train_networks(pro_gan, dataset, epochs,
             print("Time taken for epoch: %.3f secs" % (stop - start))
 
             if epoch % checkpoint_factor == 0 or epoch == 0:
+                os.makedirs(save_dir, exist_ok=True)
                 gen_save_file = os.path.join(save_dir, "GAN_GEN_" + str(current_depth) + ".pth")
                 dis_save_file = os.path.join(save_dir, "GAN_DIS_" + str(current_depth) + ".pth")
+                gen_optim_save_file = os.path.join(save_dir,
+                                                   "GAN_GEN_OPTIM_" + str(current_depth)
+                                                   + ".pth")
+                dis_optim_save_file = os.path.join(save_dir,
+                                                   "GAN_DIS_OPTIM_" + str(current_depth)
+                                                   + ".pth")
 
                 th.save(pro_gan.gen.state_dict(), gen_save_file, pickle)
                 th.save(pro_gan.dis.state_dict(), dis_save_file, pickle)
+                th.save(pro_gan.gen_optim.state_dict(), gen_optim_save_file, pickle)
+                th.save(pro_gan.dis_optim.state_dict(), dis_optim_save_file, pickle)
 
     print("Training completed ...")
 
@@ -168,8 +198,13 @@ def main(args):
     config = get_config(args.config)
     print("Current Configuration:", config)
 
+    if config.folder_distributed:
+        Dataset = dl.FoldersDistributedDataset
+    else:
+        Dataset = dl.FlatDirectoryDataset
+
     # create the dataset for training
-    dataset = dl.FoldersDistributedDataset(
+    dataset = Dataset(
         data_dir=config.images_dir,
         transform=dl.get_transform(config.img_dims)
     )
@@ -212,6 +247,7 @@ def main(args):
         feedback_factor=config.feedback_factor,
         log_dir=config.log_dir,
         sample_dir=config.sample_dir,
+        num_samples=config.num_samples,
         checkpoint_factor=config.checkpoint_factor,
         save_dir=config.save_dir,
     )
