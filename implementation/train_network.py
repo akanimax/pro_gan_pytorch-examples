@@ -156,6 +156,11 @@ def train_networks(pro_gan, dataset, epochs,
                             fixed_input,
                             current_depth,
                             alpha
+                        ) if not pro_gan.use_ema
+                        else pro_gan.gen_shadow(
+                            fixed_input,
+                            current_depth,
+                            alpha
                         ),
                         scale_factor=int(np.power(2, pro_gan.depth - current_depth - 1)),
                         img_file=gen_img_file,
