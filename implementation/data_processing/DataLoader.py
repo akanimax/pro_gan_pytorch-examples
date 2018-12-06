@@ -1,6 +1,7 @@
 """ Module for the data loading pipeline for the model to train """
 
 import os
+import numpy as np
 from torch.utils.data import Dataset
 
 
@@ -51,8 +52,16 @@ class FlatDirectoryDataset(Dataset):
         """
         from PIL import Image
 
-        # read the image:
-        img = Image.open(self.files[idx])
+        img_file = self.files[idx]
+
+        if img_file[-4:] == ".npy":
+            # files are in .npy format
+            img = np.load(img_file)
+            img = Image.fromarray(img.squeeze(0).transpose(1, 2, 0))
+
+        else:
+            # read the image:
+            img = Image.open(self.files[idx])
 
         # apply the transforms on the image
         if self.transform is not None:

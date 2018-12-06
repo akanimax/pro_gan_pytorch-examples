@@ -131,7 +131,7 @@ def train_networks(pro_gan, dataset, epochs,
 
                 # optimize the generator:
                 gan_input = th.randn(images.shape[0], pro_gan.latent_size).to(pro_gan.device)
-                gen_loss = pro_gan.optimize_generator(gan_input, current_depth, alpha)
+                gen_loss = pro_gan.optimize_generator(gan_input, images, current_depth, alpha)
 
                 # provide a loss feedback
                 if i % int(total_batches / feedback_factor) == 0 or i == 1:
