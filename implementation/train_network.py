@@ -1,15 +1,9 @@
 """ Script for training of the proGAN model """
 
-import datetime
-import time
 import torch as th
-import numpy as np
 import data_processing.DataLoader as dl
 import argparse
 import yaml
-import os
-import pickle
-import timeit
 
 from torch.backends import cudnn
 
@@ -35,8 +29,14 @@ def parse_arguments():
                         help="Starting depth for training the network")
     parser.add_argument("--generator_file", action="store", type=str, default=None,
                         help="pretrained Generator file (compatible with my code)")
+    parser.add_argument("--gen_shadow_file", action="store", type=str, default=None,
+                        help="pretrained gen_shadow file")
     parser.add_argument("--discriminator_file", action="store", type=str, default=None,
                         help="pretrained Discriminator file (compatible with my code)")
+    parser.add_argument("--gen_optim_file", action="store", type=str, default=None,
+                        help="saved state of generator optimizer")
+    parser.add_argument("--dis_optim_file", action="store", type=str, default=None,
+                        help="saved_state of discriminator optimizer")
 
     args = parser.parse_args()
 
@@ -58,139 +58,6 @@ def get_config(conf_file):
     return edict(data)
 
 
-def create_grid(samples, scale_factor, img_file, real_imgs=False):
-    """
-    utility function to create a grid of GAN samples
-    :param samples: generated samples for storing
-    :param scale_factor: factor for upscaling the image
-    :param img_file: name of file to write
-    :param real_imgs: turn off the scaling of images
-    :return: None (saves a file)
-    """
-    from torchvision.utils import save_image
-    from torch.nn.functional import interpolate
-
-    samples = th.clamp((samples / 2) + 0.5, min=0, max=1)
-
-    # upsample the image
-    if scale_factor > 1 and not real_imgs:
-        samples = interpolate(samples, scale_factor=scale_factor)
-
-    # save the images:
-    save_image(samples, img_file, nrow=int(np.sqrt(len(samples))))
-
-
-def train_networks(pro_gan, dataset, epochs,
-                   fade_in_percentage, batch_sizes, num_samples,
-                   start_depth, num_workers, feedback_factor,
-                   log_dir, sample_dir, checkpoint_factor,
-                   save_dir):
-    assert pro_gan.depth == len(batch_sizes), "batch_sizes not compatible with depth"
-
-    # turn the generator and discriminator into train mode
-    pro_gan.gen.train()
-    pro_gan.dis.train()
-
-    # create a global time counter
-    global_time = time.time()
-
-    # create fixed_input for debugging
-    fixed_input = th.randn(num_samples, pro_gan.latent_size).to(device)
-
-    print("Starting the training process ... ")
-    for current_depth in range(start_depth, pro_gan.depth):
-
-        print("\n\nCurrently working on Depth: ", current_depth)
-        current_res = np.power(2, current_depth + 2)
-        print("Current resolution: %d x %d" % (current_res, current_res))
-
-        data = dl.get_data_loader(dataset, batch_sizes[current_depth], num_workers)
-        ticker = 1
-
-        for epoch in range(1, epochs[current_depth] + 1):
-            start = timeit.default_timer()  # record time at the start of epoch
-
-            print("\nEpoch: %d" % epoch)
-            total_batches = len(iter(data))
-
-            fader_point = int((fade_in_percentage[current_depth] / 100)
-                              * epochs[current_depth] * total_batches)
-
-            for (i, batch) in enumerate(data, 1):
-                # calculate the alpha for fading in the layers
-                alpha = ticker / fader_point if ticker <= fader_point else 1
-
-                # extract current batch of data for training
-                images = batch.to(device)
-
-                gan_input = th.randn(images.shape[0], pro_gan.latent_size).to(pro_gan.device)
-
-                # optimize the discriminator:
-                dis_loss = pro_gan.optimize_discriminator(gan_input, images,
-                                                          current_depth, alpha)
-
-                # optimize the generator:
-                gan_input = th.randn(images.shape[0], pro_gan.latent_size).to(pro_gan.device)
-                gen_loss = pro_gan.optimize_generator(gan_input, current_depth, alpha)
-
-                # provide a loss feedback
-                if i % int(total_batches / feedback_factor) == 0 or i == 1:
-                    elapsed = time.time() - global_time
-                    elapsed = str(datetime.timedelta(seconds=elapsed))
-                    print("Elapsed: [%s]  batch: %d  d_loss: %f  g_loss: %f"
-                          % (elapsed, i, dis_loss, gen_loss))
-
-                    # also write the losses to the log file:
-                    os.makedirs(log_dir, exist_ok=True)
-                    log_file = os.path.join(log_dir, "loss_" + str(current_depth) + ".log")
-                    with open(log_file, "a") as log:
-                        log.write(str(dis_loss) + "\t" + str(gen_loss) + "\n")
-
-                    # create a grid of samples and save it
-                    os.makedirs(sample_dir, exist_ok=True)
-                    gen_img_file = os.path.join(sample_dir, "gen_" + str(current_depth) +
-                                                "_" + str(epoch) + "_" +
-                                                str(i) + ".png")
-                    create_grid(
-                        samples=pro_gan.gen(
-                            fixed_input,
-                            current_depth,
-                            alpha
-                        ) if not pro_gan.use_ema
-                        else pro_gan.gen_shadow(
-                            fixed_input,
-                            current_depth,
-                            alpha
-                        ),
-                        scale_factor=int(np.power(2, pro_gan.depth - current_depth - 1)),
-                        img_file=gen_img_file,
-                    )
-
-                # increment the alpha ticker
-                ticker += 1
-
-            stop = timeit.default_timer()
-            print("Time taken for epoch: %.3f secs" % (stop - start))
-
-            if epoch % checkpoint_factor == 0 or epoch == 0:
-                os.makedirs(save_dir, exist_ok=True)
-                gen_save_file = os.path.join(save_dir, "GAN_GEN_" + str(current_depth) + ".pth")
-                dis_save_file = os.path.join(save_dir, "GAN_DIS_" + str(current_depth) + ".pth")
-                gen_optim_save_file = os.path.join(save_dir,
-                                                   "GAN_GEN_OPTIM_" + str(current_depth)
-                                                   + ".pth")
-                dis_optim_save_file = os.path.join(save_dir,
-                                                   "GAN_DIS_OPTIM_" + str(current_depth)
-                                                   + ".pth")
-
-                th.save(pro_gan.gen.state_dict(), gen_save_file, pickle)
-                th.save(pro_gan.dis.state_dict(), dis_save_file, pickle)
-                th.save(pro_gan.gen_optim.state_dict(), gen_optim_save_file, pickle)
-                th.save(pro_gan.dis_optim.state_dict(), dis_optim_save_file, pickle)
-
-    print("Training completed ...")
-
-
 def main(args):
     """
     Main function for the script
@@ -207,7 +74,7 @@ def main(args):
     if config.folder_distributed:
         Dataset = dl.FoldersDistributedDataset
     else:
-        Dataset = dl.FlatDirectoryDataset
+        Dataset = dl.FlatDirectoryImageDataset
 
     # create the dataset for training
     dataset = Dataset(
@@ -241,9 +108,23 @@ def main(args):
         print("Loading discriminator from:", args.discriminator_file)
         pro_gan.dis.load_state_dict(th.load(args.discriminator_file))
 
+    if args.gen_shadow_file is not None and config.use_ema:
+        print("Loading shadow generator from:", args.gen_shadow_file)
+        pro_gan.gen_shadow.load_state_dict(th.load(args.gen_shadow_file))
+
+    if args.gen_optim_file is not None:
+        print("Loading generator optimizer from:", args.gen_optim_file)
+        pro_gan.gen_optim.load_state_dict(th.load(args.gen_optim_file))
+
+    if args.dis_optim_file is not None:
+        print("Loading discriminator optimizer from:", args.dis_optim_file)
+        pro_gan.dis_optim.load_state_dict(th.load(args.dis_optim_file))
+
+    print("Generator_configuration:\n%s" % str(pro_gan.gen))
+    print("Discriminator_configuration:\n%s" % str(pro_gan.dis))
+
     # train all the networks
-    train_networks(
-        pro_gan=pro_gan,
+    pro_gan.train(
         dataset=dataset,
         epochs=config.epochs,
         fade_in_percentage=config.fade_in_percentage,

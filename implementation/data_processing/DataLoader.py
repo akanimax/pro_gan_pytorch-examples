@@ -1,11 +1,12 @@
 """ Module for the data loading pipeline for the model to train """
 
 import os
+import numpy as np
 from torch.utils.data import Dataset
 
 
-class FlatDirectoryDataset(Dataset):
-    """ pyTorch Dataset wrapper for the FlatDirectory Images dataset """
+class FlatDirectoryImageDataset(Dataset):
+    """ pyTorch Dataset wrapper for the generic flat directory images dataset """
 
     def __setup_files(self):
         """
@@ -52,18 +53,28 @@ class FlatDirectoryDataset(Dataset):
         from PIL import Image
 
         # read the image:
-        img = Image.open(self.files[idx])
+        img_name = self.files[idx]
+        if img_name[-4:] == ".npy":
+            img = np.load(img_name)
+            img = Image.fromarray(img)
+        else:
+            img = Image.open(img_name)
 
         # apply the transforms on the image
         if self.transform is not None:
             img = self.transform(img)
+
+        if img.shape[0] >= 4:
+            # ignore the alpha channel
+            # in the image if it exists
+            img = img[:3, :, :]
 
         # return the image:
         return img
 
 
 class FoldersDistributedDataset(Dataset):
-    """ pyTorch Dataset wrapper for the MNIST dataset """
+    """ pyTorch Dataset wrapper for folder distributed dataset """
 
     def __setup_files(self):
         """
@@ -114,25 +125,24 @@ class FoldersDistributedDataset(Dataset):
         from PIL import Image
 
         # read the image:
-        img = Image.open(self.files[idx])
+        img_name = self.files[idx]
+        if img_name[-4:] == ".npy":
+            img = np.load(img_name)
+            img = Image.fromarray(img)
+        else:
+            img = Image.open(img_name)
 
         # apply the transforms on the image
         if self.transform is not None:
             img = self.transform(img)
 
-        # convert the black and white image to RGB:
-        img = img.expand(3, -1, -1)
+        if img.shape[0] >= 4:
+            # ignore the alpha channel
+            # in the image if it exists
+            img = img[:3, :, :]
 
         # return the image:
         return img
-
-
-class MNIST(FoldersDistributedDataset):
-    pass
-
-
-class LFW(FoldersDistributedDataset):
-    pass
 
 
 def get_transform(new_size=None):
@@ -161,7 +171,7 @@ def get_transform(new_size=None):
 def get_data_loader(dataset, batch_size, num_workers):
     """
     generate the data_loader from the given dataset
-    :param dataset: F2T dataset
+    :param dataset: PyTorch dataset
     :param batch_size: batch size of the data
     :param num_workers: num of parallel readers
     :return: dl => dataloader for the dataset
