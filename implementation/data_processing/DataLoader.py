@@ -52,13 +52,16 @@ class FlatDirectoryImageDataset(Dataset):
         """
         from PIL import Image
 
-        # read the image:
-        img_name = self.files[idx]
-        if img_name[-4:] == ".npy":
-            img = np.load(img_name)
-            img = Image.fromarray(img)
+        img_file = self.files[idx]
+
+        if img_file[-4:] == ".npy":
+            # files are in .npy format
+            img = np.load(img_file)
+            img = Image.fromarray(img.squeeze(0).transpose(1, 2, 0))
+
         else:
-            img = Image.open(img_name)
+            # read the image:
+            img = Image.open(self.files[idx])
 
         # apply the transforms on the image
         if self.transform is not None:
@@ -128,7 +131,7 @@ class FoldersDistributedDataset(Dataset):
         img_name = self.files[idx]
         if img_name[-4:] == ".npy":
             img = np.load(img_name)
-            img = Image.fromarray(img)
+            img = Image.fromarray(img.squeeze(0).transpose(1, 2, 0))
         else:
             img = Image.open(img_name)
 
