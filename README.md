@@ -4,7 +4,7 @@ the python package `pro-gan-pth`. You can find the github repo for
 the project at
 [github-repository](https://github.com/akanimax/pro_gan_pytorch)
 and the PyPI package at 
-[pypi](https://pypi.org/project/pro-gan-pth/) <br><br>
+[pypi](https://pypi.org/project/pro-gan-pth/)
 
 There are two examples presented here for <b>LFW</b> dataset and
 <b>MNIST</b> dataset. Please refer to the following sections 
@@ -93,6 +93,14 @@ the trained model for generating samples:
     
 The trained weights can be found in the `saved_models` 
 directory present in respective `training_runs`.
+
+## How to use on Google Colab Notebook:
+This code can be run on Google Colaboratory using GPU acceleration. Colab offers a free Tesla K80 GPU with up to ~12GB of VRAM. However, the duration of the instance  is limited and closes after a certain time. All installed libraries and saved files will be reset in that process. A workaround is to save training results to Google Drive. The packages need to be installed after every instance reset.
+
+Here is a step-by-step instruction on how to run this using Google Colab.
+[ProGAN Colaboratory Notebook](https://github.com/Ianmcmill/pro_gan_pytorch-examples/blob/master/pro_gan_pytorch_example.ipynb "Colaboratory Notebook")
+
+
 
 ## Thanks:
 Please feel free to open PRs here if you train on other datasets 
